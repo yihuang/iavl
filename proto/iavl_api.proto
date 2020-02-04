@@ -1,8 +1,8 @@
 syntax = "proto3";
 package proto;
 
-import "google/api/annotations.proto";
-import "google/protobuf/empty.proto";
+import "third_party/google/api/annotations.proto";
+import "third_party/google/protobuf/empty.proto";
 
 // ----------------------------------------------------------------------------
 // gRPC service
@@ -34,7 +34,7 @@ service IAVLService {
       get: "/v1/tree/get_with_proof"
     };
   }
-  
+
   // GetVersioned returns a result containing the IAVL tree version and value
   // for a given key at a specific tree version.
   rpc GetVersioned(GetVersionedRequest) returns (GetResponse) {
@@ -103,7 +103,7 @@ service IAVLService {
       get: "/v1/tree/hash"
     };
   }
-  
+
   // VersionExists returns a result containing a boolean on whether or not a given
   // version exists in the IAVL tree.
   rpc VersionExists(VersionExistsRequest) returns (VersionExistsResponse) {

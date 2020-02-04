@@ -3,7 +3,7 @@ COMMIT := $(shell git log -1 --format='%H')
 BRANCH=$(shell git rev-parse --abbrev-ref HEAD)
 
 PDFFLAGS := -pdf --nodefraction=0.1
-CMDFLAGS := -ldflags -X TENDERMINT_IAVL_COLORS_ON=on 
+CMDFLAGS := -ldflags -X TENDERMINT_IAVL_COLORS_ON=on
 LDFLAGS  := -ldflags "-X github.com/tendermint/iavl.Version=$(VERSION) -X github.com/tendermint/iavl.Commit=$(COMMIT) -X github.com/tendermint/iavl.Branch=$(BRANCH)"
 
 
@@ -74,16 +74,14 @@ delve:
 protogen:
 	protoc -I/usr/local/include -I. \
 	-I$(GOPATH)/src \
-	-I$(GOPATH)/src/github.com/grpc-ecosystem/grpc-gateway/third_party/googleapis \
 	--go_out=plugins=grpc:. \
 	--grpc-gateway_out=logtostderr=true:. \
 	proto/iavl_api.proto
 
 protolint:
-	protoc -I/usr/local/include -I. \
-	-I$(GOPATH)/src \
-	-I$(GOPATH)/src/github.com/grpc-ecosystem/grpc-gateway/third_party/googleapis \
-	--lint_out=. \
-	proto/iavl_api.proto
+	@buf check lint
 
-.PHONY: lint test tools install delve exploremem explorecpu profile fullbench bench protogen protolint
+protocheckbreaking:
+	@buf check breaking --against-input '.git#branch=master'
+
+.PHONY: lint test tools install delve exploremem explorecpu profile fullbench bench protogen protolint protocheckbreaking
