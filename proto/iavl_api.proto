@@ -2,7 +2,9 @@ syntax = "proto3";
 package proto;
 
 import "third_party/google/api/annotations.proto";
-import "third_party/google/protobuf/empty.proto";
+import "third_party/golang/protobuf/ptypes/empty/empty.proto";
+
+option go_package = "github.com/tendermint/iavl/proto";
 
 // ----------------------------------------------------------------------------
 // gRPC service

@@ -3,14 +3,17 @@ build:
     - .
 lint:
   use:
-    - MINIMAL
+    - DEFAULT
+    - COMMENTS
     - FILE_LOWER_SNAKE_CASE
-    - UNARY_RPC
   except:
+    - UNARY_RPC
+    - COMMENT_FIELD
     - PACKAGE_DIRECTORY_MATCH
-  ignore: 
+  ignore:
     - third_party
 breaking:
   use:
     - FILE
-    - PACKAGE
+  ignore:
+    - third_party

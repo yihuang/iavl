@@ -74,7 +74,7 @@ delve:
 protogen:
 	protoc -I/usr/local/include -I. \
 	-I$(GOPATH)/src \
-	--go_out=plugins=grpc:. \
+	--go_out=plugins=grpc,paths=source_relative:. \
 	--grpc-gateway_out=logtostderr=true:. \
 	proto/iavl_api.proto
 

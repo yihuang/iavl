@@ -12,10 +12,10 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"third_party/google/protobuf"
 
 	"github.com/golang/protobuf/descriptor"
 	"github.com/golang/protobuf/proto"
-	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/grpc-ecosystem/grpc-gateway/utilities"
 	"google.golang.org/grpc"
@@ -374,7 +374,7 @@ func local_request_IAVLService_Remove_0(ctx context.Context, marshaler runtime.M
 }
 
 func request_IAVLService_SaveVersion_0(ctx context.Context, marshaler runtime.Marshaler, client IAVLServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq empty.Empty
+	var protoReq types.Empty
 	var metadata runtime.ServerMetadata
 
 	newReader, berr := utilities.IOReaderFactory(req.Body)
@@ -391,7 +391,7 @@ func request_IAVLService_SaveVersion_0(ctx context.Context, marshaler runtime.Ma
 }
 
 func local_request_IAVLService_SaveVersion_0(ctx context.Context, marshaler runtime.Marshaler, server IAVLServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq empty.Empty
+	var protoReq types.Empty
 	var metadata runtime.ServerMetadata
 
 	newReader, berr := utilities.IOReaderFactory(req.Body)
@@ -442,7 +442,7 @@ func local_request_IAVLService_DeleteVersion_0(ctx context.Context, marshaler ru
 }
 
 func request_IAVLService_Version_0(ctx context.Context, marshaler runtime.Marshaler, client IAVLServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq empty.Empty
+	var protoReq types.Empty
 	var metadata runtime.ServerMetadata
 
 	msg, err := client.Version(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
@@ -451,7 +451,7 @@ func request_IAVLService_Version_0(ctx context.Context, marshaler runtime.Marsha
 }
 
 func local_request_IAVLService_Version_0(ctx context.Context, marshaler runtime.Marshaler, server IAVLServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq empty.Empty
+	var protoReq types.Empty
 	var metadata runtime.ServerMetadata
 
 	msg, err := server.Version(ctx, &protoReq)
@@ -460,7 +460,7 @@ func local_request_IAVLService_Version_0(ctx context.Context, marshaler runtime.
 }
 
 func request_IAVLService_Hash_0(ctx context.Context, marshaler runtime.Marshaler, client IAVLServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq empty.Empty
+	var protoReq types.Empty
 	var metadata runtime.ServerMetadata
 
 	msg, err := client.Hash(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
@@ -469,7 +469,7 @@ func request_IAVLService_Hash_0(ctx context.Context, marshaler runtime.Marshaler
 }
 
 func local_request_IAVLService_Hash_0(ctx context.Context, marshaler runtime.Marshaler, server IAVLServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq empty.Empty
+	var protoReq types.Empty
 	var metadata runtime.ServerMetadata
 
 	msg, err := server.Hash(ctx, &protoReq)
@@ -610,7 +610,7 @@ func local_request_IAVLService_VerifyAbsence_0(ctx context.Context, marshaler ru
 }
 
 func request_IAVLService_Rollback_0(ctx context.Context, marshaler runtime.Marshaler, client IAVLServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq empty.Empty
+	var protoReq types.Empty
 	var metadata runtime.ServerMetadata
 
 	newReader, berr := utilities.IOReaderFactory(req.Body)
@@ -627,7 +627,7 @@ func request_IAVLService_Rollback_0(ctx context.Context, marshaler runtime.Marsh
 }
 
 func local_request_IAVLService_Rollback_0(ctx context.Context, marshaler runtime.Marshaler, server IAVLServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq empty.Empty
+	var protoReq types.Empty
 	var metadata runtime.ServerMetadata
 
 	newReader, berr := utilities.IOReaderFactory(req.Body)
