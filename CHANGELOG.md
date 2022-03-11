@@ -1,7 +1,10 @@
 # Changelog
 
-
 ## Unreleased
+
+### Improvements
+
+- [#483](https://github.com/cosmos/iavl/pull/483) Allow delete latest version.
 
 ## 0.17.3 (December 1, 2021)
 
