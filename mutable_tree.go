@@ -647,16 +647,17 @@ func (tree *MutableTree) loadVersionForOverwriting(targetVersion int64, lazy boo
 		return latestVersion, err
 	}
 
-	if !tree.skipFastStorageUpgrade {
-		if err := tree.enableFastStorageAndCommitLocked(); err != nil {
-			return latestVersion, err
-		}
-	}
+	tree.mtx.Lock()
+	defer tree.mtx.Unlock()
 
 	tree.ndb.resetLatestVersion(latestVersion)
 
-	tree.mtx.Lock()
-	defer tree.mtx.Unlock()
+	if !tree.skipFastStorageUpgrade {
+		// it'll repopulates the fast node index because of version mismatch.
+		if _, err := tree.enableFastStorageAndCommitIfNotEnabled(); err != nil {
+			return latestVersion, err
+		}
+	}
 
 	for v := range tree.versions {
 		if v > targetVersion {
@@ -732,12 +733,6 @@ func (tree *MutableTree) enableFastStorageAndCommitIfNotEnabled() (bool, error) 
 		return false, err
 	}
 	return true, nil
-}
-
-func (tree *MutableTree) enableFastStorageAndCommitLocked() error {
-	tree.mtx.Lock()
-	defer tree.mtx.Unlock()
-	return tree.enableFastStorageAndCommit()
 }
 
 func (tree *MutableTree) enableFastStorageAndCommit() error {
