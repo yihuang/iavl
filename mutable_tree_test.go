@@ -36,7 +36,7 @@ func setupMutableTree(t *testing.T) *MutableTree {
 func TestDelete(t *testing.T) {
 	tree := setupMutableTree(t)
 
-	tree.set([]byte("k1"), []byte("Fred"))
+	tree.Set([]byte("k1"), []byte("Fred"))
 	hash, version, err := tree.SaveVersion()
 	require.NoError(t, err)
 	_, _, err = tree.SaveVersion()
@@ -102,7 +102,7 @@ func TestTraverse(t *testing.T) {
 	tree := setupMutableTree(t)
 
 	for i := 0; i < 6; i++ {
-		tree.set([]byte(fmt.Sprintf("k%d", i)), []byte(fmt.Sprintf("v%d", i)))
+		tree.Set([]byte(fmt.Sprintf("k%d", i)), []byte(fmt.Sprintf("v%d", i)))
 	}
 
 	require.Equal(t, 11, tree.nodeSize(), "Size of tree unexpected")
