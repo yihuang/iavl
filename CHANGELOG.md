@@ -3,6 +3,7 @@
 ## Unreleased
 
 - [#640](https://github.com/cosmos/iavl/pull/640) commit `NodeDB` batch in `LoadVersionForOverwriting`.
+- [#638](https://github.com/cosmos/iavl/pull/638) Make LazyLoadVersion check the opts.InitialVersion, add API `LazyLoadVersionForOverwriting`.
 
 ## 0.19.4 (October 28, 2022)
 
