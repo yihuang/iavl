@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- [#638](https://github.com/cosmos/iavl/pull/638) Make LazyLoadVersion check the opts.InitialVersion, add API `LazyLoadVersionForOverwriting`.
+
 ## 0.19.4 (October 28, 2022)
 
 - [#599](https://github.com/cosmos/iavl/pull/599) Populate ImmutableTree creation in copy function with missing field
