@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"math"
 	"math/rand"
 	"testing"
 
@@ -13,7 +14,7 @@ import (
 	iavlrand "github.com/cosmos/iavl/internal/rand"
 )
 
-func TestNode_encodedSize(t *testing.T) {
+func TestNode_maxEncodedSize(t *testing.T) {
 	node := &Node{
 		key:           iavlrand.RandBytes(10),
 		value:         iavlrand.RandBytes(10),
@@ -29,11 +30,11 @@ func TestNode_encodedSize(t *testing.T) {
 	}
 
 	// leaf node
-	require.Equal(t, 26, node.encodedSize())
+	require.Equal(t, 26, node.maxEncodedSize())
 
 	// non-leaf node
 	node.subtreeHeight = 1
-	require.Equal(t, 57, node.encodedSize())
+	require.Equal(t, 57, node.maxEncodedSize())
 }
 
 func TestNode_encode_decode(t *testing.T) {
@@ -134,7 +135,9 @@ func TestNode_validate(t *testing.T) {
 	}
 }
 
-func BenchmarkNode_encodedSize(b *testing.B) {
+func BenchmarkNode_maxEncodedSize(b *testing.B) {
+	// deterministic test case is good for comparison
+	iavlrand.Seed(0)
 	node := &Node{
 		key:           iavlrand.RandBytes(25),
 		value:         iavlrand.RandBytes(100),
@@ -147,34 +150,84 @@ func BenchmarkNode_encodedSize(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		node.encodedSize()
+		_ = node.maxEncodedSize()
 	}
 }
 
-func BenchmarkNode_WriteBytes(b *testing.B) {
+func BenchmarkNode_Encode(b *testing.B) {
+	// deterministic test case is good for comparison
+	iavlrand.Seed(0)
 	node := &Node{
 		key:           iavlrand.RandBytes(25),
 		value:         iavlrand.RandBytes(100),
 		version:       rand.Int63n(10000000),
 		subtreeHeight: 1,
 		size:          rand.Int63n(10000000),
-		leftHash:      iavlrand.RandBytes(20),
-		rightHash:     iavlrand.RandBytes(20),
+		leftHash:      iavlrand.RandBytes(32),
+		rightHash:     iavlrand.RandBytes(32),
+	}
+	largeNode := &Node{
+		key:           iavlrand.RandBytes(25),
+		value:         iavlrand.RandBytes(100),
+		version:       rand.Int63n(10000000) + math.MaxUint16,
+		subtreeHeight: 1,
+		size:          rand.Int63n(10000000) + math.MaxUint32,
+		leftHash:      iavlrand.RandBytes(32),
+		rightHash:     iavlrand.RandBytes(32),
 	}
 	b.ResetTimer()
-	b.Run("NoPreAllocate", func(sub *testing.B) {
+	b.Run("small integer", func(sub *testing.B) {
 		sub.ReportAllocs()
 		for i := 0; i < sub.N; i++ {
-			var buf bytes.Buffer
-			_ = node.writeBytes(&buf)
+			_, _ = node.Encode()
 		}
 	})
-	b.Run("PreAllocate", func(sub *testing.B) {
+	b.Run("large integer", func(sub *testing.B) {
 		sub.ReportAllocs()
 		for i := 0; i < sub.N; i++ {
-			var buf bytes.Buffer
-			buf.Grow(node.encodedSize())
-			_ = node.writeBytes(&buf)
+			_, _ = largeNode.Encode()
+		}
+	})
+}
+
+func BenchmarkNode_Decode(b *testing.B) {
+	// deterministic test case is good for comparison
+	iavlrand.Seed(0)
+	node := &Node{
+		key:           iavlrand.RandBytes(25),
+		value:         iavlrand.RandBytes(100),
+		version:       rand.Int63n(10000000),
+		subtreeHeight: 1,
+		size:          rand.Int63n(10000000),
+		leftHash:      iavlrand.RandBytes(32),
+		rightHash:     iavlrand.RandBytes(32),
+	}
+	largeNode := &Node{
+		key:           iavlrand.RandBytes(25),
+		value:         iavlrand.RandBytes(100),
+		version:       rand.Int63n(10000000) + math.MaxUint16,
+		subtreeHeight: 1,
+		size:          rand.Int63n(10000000) + math.MaxUint32,
+		leftHash:      iavlrand.RandBytes(32),
+		rightHash:     iavlrand.RandBytes(32),
+	}
+
+	buf, err := node.Encode()
+	require.NoError(b, err)
+	largeNodeBuf, err := largeNode.Encode()
+	require.NoError(b, err)
+
+	b.ResetTimer()
+	b.Run("small number", func(sub *testing.B) {
+		sub.ReportAllocs()
+		for i := 0; i < sub.N; i++ {
+			_, _ = MakeNode(buf)
+		}
+	})
+	b.Run("large number", func(sub *testing.B) {
+		sub.ReportAllocs()
+		for i := 0; i < sub.N; i++ {
+			_, _ = MakeNode(largeNodeBuf)
 		}
 	})
 }
@@ -203,7 +256,7 @@ func BenchmarkNode_HashNode(b *testing.B) {
 		for i := 0; i < sub.N; i++ {
 			h := sha256.New()
 			buf := new(bytes.Buffer)
-			buf.Grow(node.encodedSize())
+			buf.Grow(node.maxEncodedSize())
 			require.NoError(b, node.writeHashBytes(buf))
 			_, err := h.Write(buf.Bytes())
 			require.NoError(b, err)

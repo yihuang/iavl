@@ -396,7 +396,7 @@ func (node *Node) writeHashBytesRecursively(w io.Writer) (hashCount int64, err e
 	return
 }
 
-func (node *Node) encodedSize() int {
+func (node *Node) maxEncodedSize() int {
 	n := 1 +
 		encoding.EncodeVarintSize(node.size) +
 		encoding.EncodeVarintSize(node.version) +
@@ -408,6 +408,18 @@ func (node *Node) encodedSize() int {
 			encoding.EncodeBytesSize(node.rightHash)
 	}
 	return n
+}
+
+// Encode the node to bytes
+func (node *Node) Encode() ([]byte, error) {
+	var buf bytes.Buffer
+	buf.Grow(node.maxEncodedSize())
+
+	if err := node.writeBytes(&buf); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
 }
 
 // Writes the node as a serialized byte slice to the supplied io.Writer.
