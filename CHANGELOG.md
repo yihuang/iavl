@@ -1,5 +1,11 @@
 # Changelog
 
+## UNRELEASED
+
+### Improvements
+
+- [#703](https://github.com/cosmos/iavl/pull/703) New APIs `NewCompressExporter`/`NewCompressImporter` to support more compact snapshot format.
+
 ## 0.19.5 (February 2, 2023)
 
 ### Breaking Changes
