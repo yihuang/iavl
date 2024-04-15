@@ -10,7 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	db "github.com/cometbft/cometbft-db"
+	db "github.com/cosmos/cosmos-db"
 	"github.com/cosmos/iavl"
 )
 
@@ -25,13 +25,12 @@ func randBytes(length int) []byte {
 }
 
 func prepareTree(b *testing.B, db db.DB, size, keyLen, dataLen int) (*iavl.MutableTree, [][]byte) {
-	t, err := iavl.NewMutableTreeWithOpts(db, size, nil, false)
-	require.NoError(b, err)
+	t := iavl.NewMutableTreeWithOpts(db, size, nil, false)
 	keys := make([][]byte, size)
 
 	for i := 0; i < size; i++ {
 		key := randBytes(keyLen)
-		_, err = t.Set(key, randBytes(dataLen))
+		_, err := t.Set(key, randBytes(dataLen))
 		require.NoError(b, err)
 		keys[i] = key
 	}
@@ -42,8 +41,7 @@ func prepareTree(b *testing.B, db db.DB, size, keyLen, dataLen int) (*iavl.Mutab
 
 // commit tree saves a new version and deletes old ones according to historySize
 func commitTree(b *testing.B, t *iavl.MutableTree) {
-	_, err := t.Hash()
-	require.NoError(b, err)
+	t.Hash()
 
 	_, version, err := t.SaveVersion()
 	if err != nil {
@@ -330,7 +328,7 @@ func runBenchmarks(b *testing.B, benchmarks []benchmark) {
 
 		// prepare a dir for the db and cleanup afterwards
 		dirName := fmt.Sprintf("./%s-db", prefix)
-		if (bb.dbType == db.RocksDBBackend) || (bb.dbType == db.CLevelDBBackend) {
+		if bb.dbType == db.RocksDBBackend {
 			_ = os.Mkdir(dirName, 0o755)
 		}
 

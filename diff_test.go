@@ -8,7 +8,8 @@ import (
 	"sort"
 	"testing"
 
-	db "github.com/cometbft/cometbft-db"
+	"cosmossdk.io/log"
+	db "github.com/cosmos/cosmos-db"
 	"github.com/stretchr/testify/require"
 )
 
@@ -19,8 +20,7 @@ func TestDiffRoundTrip(t *testing.T) {
 
 	// apply changeSets to tree
 	db := db.NewMemDB()
-	tree, err := NewMutableTree(db, 0, true)
-	require.NoError(t, err)
+	tree := NewMutableTree(db, 0, true, log.NewNopLogger())
 	for _, cs := range changeSets {
 		for _, pair := range cs.Pairs {
 			if pair.Delete {
@@ -39,7 +39,7 @@ func TestDiffRoundTrip(t *testing.T) {
 	// extract change sets from db
 	var extractChangeSets []*ChangeSet
 	tree2 := NewImmutableTree(db, 0, true)
-	err = tree2.TraverseStateChanges(0, math.MaxInt64, func(version int64, changeSet *ChangeSet) error {
+	err := tree2.TraverseStateChanges(0, math.MaxInt64, func(version int64, changeSet *ChangeSet) error {
 		extractChangeSets = append(extractChangeSets, changeSet)
 		return nil
 	})

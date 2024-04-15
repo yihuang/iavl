@@ -8,12 +8,15 @@ import (
 	"sort"
 	"sync"
 
-	dbm "github.com/cometbft/cometbft-db"
+	"cosmossdk.io/log"
+	dbm "github.com/cosmos/cosmos-db"
 
 	"github.com/cosmos/iavl/fastnode"
 	ibytes "github.com/cosmos/iavl/internal/bytes"
 	"github.com/cosmos/iavl/internal/logger"
 )
+
+type Option func(*Options)
 
 // commitGap after upgrade/delete commitGap FastNodes when commit the batch
 var commitGap uint64 = 5000000
@@ -44,12 +47,16 @@ type MutableTree struct {
 }
 
 // NewMutableTree returns a new tree with the specified cache size and datastore.
-func NewMutableTree(db dbm.DB, cacheSize int, skipFastStorageUpgrade bool) (*MutableTree, error) {
-	return NewMutableTreeWithOpts(db, cacheSize, nil, skipFastStorageUpgrade)
+func NewMutableTree(db dbm.DB, cacheSize int, skipFastStorageUpgrade bool, logger log.Logger, options ...Option) *MutableTree {
+	opts := DefaultOptions()
+	for _, opt := range options {
+		opt(&opts)
+	}
+	return NewMutableTreeWithOpts(db, cacheSize, &opts, skipFastStorageUpgrade)
 }
 
 // NewMutableTreeWithOpts returns a new tree with the specified options.
-func NewMutableTreeWithOpts(db dbm.DB, cacheSize int, opts *Options, skipFastStorageUpgrade bool) (*MutableTree, error) {
+func NewMutableTreeWithOpts(db dbm.DB, cacheSize int, opts *Options, skipFastStorageUpgrade bool) *MutableTree {
 	ndb := newNodeDB(db, cacheSize, opts)
 	head := &ImmutableTree{ndb: ndb, skipFastStorageUpgrade: skipFastStorageUpgrade}
 
@@ -63,7 +70,7 @@ func NewMutableTreeWithOpts(db dbm.DB, cacheSize int, opts *Options, skipFastSto
 		unsavedFastNodeRemovals:  &sync.Map{},
 		ndb:                      ndb,
 		skipFastStorageUpgrade:   skipFastStorageUpgrade,
-	}, nil
+	}
 }
 
 // IsEmpty returns whether or not the tree has any keys. Only trees that are
@@ -107,12 +114,12 @@ func (tree *MutableTree) AvailableVersions() []int {
 
 // Hash returns the hash of the latest saved version of the tree, as returned
 // by SaveVersion. If no versions have been saved, Hash returns nil.
-func (tree *MutableTree) Hash() ([]byte, error) {
+func (tree *MutableTree) Hash() []byte {
 	return tree.lastSaved.Hash()
 }
 
 // WorkingHash returns the hash of the current working tree.
-func (tree *MutableTree) WorkingHash() ([]byte, error) {
+func (tree *MutableTree) WorkingHash() []byte {
 	return tree.ImmutableTree.Hash()
 }
 
@@ -672,8 +679,9 @@ func (tree *MutableTree) loadVersionForOverwriting(targetVersion int64, lazy boo
 
 // LoadVersionForOverwriting attempts to load a tree at a previously committed
 // version, or the latest version below it. Any versions greater than targetVersion will be deleted.
-func (tree *MutableTree) LoadVersionForOverwriting(targetVersion int64) (int64, error) {
-	return tree.loadVersionForOverwriting(targetVersion, false)
+func (tree *MutableTree) LoadVersionForOverwriting(targetVersion int64) error {
+	_, err := tree.loadVersionForOverwriting(targetVersion, false)
+	return err
 }
 
 // LazyLoadVersionForOverwriting is the lazy version of `LoadVersionForOverwriting`.
@@ -877,11 +885,7 @@ func (tree *MutableTree) SaveVersion() ([]byte, int64, error) {
 			existingHash = sha256.New().Sum(nil)
 		}
 
-		newHash, err := tree.WorkingHash()
-		if err != nil {
-			return nil, version, err
-		}
-
+		newHash := tree.WorkingHash()
 		if bytes.Equal(existingHash, newHash) {
 			tree.version = version
 			tree.ImmutableTree = tree.ImmutableTree.clone()
@@ -940,11 +944,7 @@ func (tree *MutableTree) SaveVersion() ([]byte, int64, error) {
 		tree.unsavedFastNodeRemovals = &sync.Map{}
 	}
 
-	hash, err := tree.Hash()
-	if err != nil {
-		return nil, version, err
-	}
-
+	hash := tree.Hash()
 	return hash, version, nil
 }
 
@@ -1101,6 +1101,10 @@ func (tree *MutableTree) DeleteVersionsRange(fromVersion, toVersion int64) error
 	}
 
 	return nil
+}
+
+func (tree *MutableTree) DeleteVersionsTo(toVersion int64) error {
+	return tree.DeleteVersionsRange(0, toVersion)
 }
 
 // DeleteVersion deletes a tree version from disk. The version can then no

@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"testing"
 
-	db "github.com/cometbft/cometbft-db"
+	db "github.com/cosmos/cosmos-db"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
 
@@ -279,8 +279,7 @@ func makeHashes(b *testing.B, seed int64) [][]byte {
 
 func makeAndPopulateMutableTree(tb testing.TB) *MutableTree {
 	memDB := db.NewMemDB()
-	tree, err := NewMutableTreeWithOpts(memDB, 0, &Options{InitialVersion: 9}, false)
-	require.NoError(tb, err)
+	tree := NewMutableTreeWithOpts(memDB, 0, &Options{InitialVersion: 9}, false)
 
 	for i := 0; i < 1e4; i++ {
 		buf := make([]byte, 0, (i/255)+1)
@@ -289,7 +288,7 @@ func makeAndPopulateMutableTree(tb testing.TB) *MutableTree {
 		}
 		tree.Set(buf, buf) //nolint:errcheck
 	}
-	_, _, err = tree.SaveVersion()
+	_, _, err := tree.SaveVersion()
 	require.Nil(tb, err, "Expected .SaveVersion to succeed")
 	return tree
 }

@@ -6,10 +6,11 @@ import (
 	"sort"
 	"testing"
 
-	ics23 "github.com/confio/ics23/go"
+	"cosmossdk.io/log"
+	ics23 "github.com/cosmos/ics23/go"
 	"github.com/stretchr/testify/require"
 
-	db "github.com/cometbft/cometbft-db"
+	db "github.com/cosmos/cosmos-db"
 )
 
 func TestGetMembership(t *testing.T) {
@@ -37,8 +38,7 @@ func TestGetMembership(t *testing.T) {
 			proof, err := tree.GetMembershipProof(key)
 			require.NoError(t, err, "Creating Proof: %+v", err)
 
-			root, err := tree.WorkingHash()
-			require.NoError(t, err)
+			root := tree.WorkingHash()
 			valid := ics23.VerifyMembership(ics23.IavlSpec, root, proof, key, val)
 			require.True(t, valid, "Membership Proof Invalid")
 		})
@@ -64,8 +64,7 @@ func TestGetNonMembership(t *testing.T) {
 		proof, err := tree.GetNonMembershipProof(key)
 		require.NoError(t, err, "Creating Proof: %+v", err)
 
-		root, err := tree.WorkingHash()
-		require.NoError(t, err)
+		root := tree.WorkingHash()
 		valid := ics23.VerifyNonMembership(ics23.IavlSpec, root, proof, key)
 		require.True(t, valid, "Non Membership Proof Invalid")
 	}
@@ -118,8 +117,7 @@ func BenchmarkGetNonMembership(b *testing.B) {
 		require.NoError(b, err, "Creating Proof: %+v", err)
 
 		b.StopTimer()
-		root, err := tree.WorkingHash()
-		require.NoError(b, err)
+		root := tree.WorkingHash()
 		valid := ics23.VerifyNonMembership(ics23.IavlSpec, root, proof, key)
 		require.True(b, valid)
 		b.StartTimer()
@@ -205,11 +203,7 @@ func GetNonKey(allkeys [][]byte, loc Where) []byte {
 // BuildTree creates random key/values and stores in tree
 // returns a list of all keys in sorted order
 func BuildTree(size int, cacheSize int) (itree *MutableTree, keys [][]byte, err error) {
-	tree, err := NewMutableTree(db.NewMemDB(), cacheSize, false)
-	if err != nil {
-		return nil, nil, err
-	}
-
+	tree := NewMutableTree(db.NewMemDB(), cacheSize, false, log.NewNopLogger())
 	// insert lots of info and store the bytes
 	keys = make([][]byte, size)
 	for i := 0; i < size; i++ {

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### API Breaking Changes
+
+- [#]() Make iavl v0 API compatible to cosmos-sdk 0.50
+
 ## 0.20.1 (September 5, 2023)
 
 ### Improvements

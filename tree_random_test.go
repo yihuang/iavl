@@ -12,7 +12,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	db "github.com/cometbft/cometbft-db"
+	db "github.com/cosmos/cosmos-db"
 	"github.com/cosmos/iavl/fastnode"
 )
 
@@ -82,8 +82,7 @@ func testRandomOperations(t *testing.T, randSeed int64) {
 		if !(r.Float64() < cacheChance) {
 			cacheSize = 0
 		}
-		tree, err = NewMutableTreeWithOpts(levelDB, cacheSize, options, false)
-		require.NoError(t, err)
+		tree = NewMutableTreeWithOpts(levelDB, cacheSize, options, false)
 		version, err = tree.Load()
 		require.NoError(t, err)
 		t.Logf("Loaded version %v (sync=%v cache=%v)", version, options.Sync, cacheSize)
@@ -102,7 +101,7 @@ func testRandomOperations(t *testing.T, randSeed int64) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tempdir)
 
-	levelDB, err := db.NewGoLevelDB("leveldb", tempdir)
+	levelDB, err := db.NewGoLevelDB("leveldb", tempdir, nil)
 	require.NoError(t, err)
 
 	tree, version, _ := loadTree(levelDB)
@@ -230,7 +229,7 @@ func testRandomOperations(t *testing.T, randSeed int64) {
 			if len(versions) > 1 {
 				version = int64(versions[r.Intn(len(versions)-1)])
 				t.Logf("Reverting to version %v", version)
-				_, err = tree.LoadVersionForOverwriting(version)
+				err = tree.LoadVersionForOverwriting(version)
 				require.NoError(t, err, "Failed to revert to version %v", version)
 				if m, ok := diskMirrors[version]; ok {
 					mirror = copyMirror(m)

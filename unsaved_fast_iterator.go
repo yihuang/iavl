@@ -6,7 +6,7 @@ import (
 	"sort"
 	"sync"
 
-	dbm "github.com/cometbft/cometbft-db"
+	dbm "github.com/cosmos/cosmos-db"
 	ibytes "github.com/cosmos/iavl/internal/bytes"
 
 	"github.com/cosmos/iavl/fastnode"

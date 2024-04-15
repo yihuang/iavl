@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	dbm "github.com/cometbft/cometbft-db"
+	dbm "github.com/cosmos/cosmos-db"
 )
 
 // ImmutableTree contains the immutable tree at a given version. It is typically created by calling
@@ -148,9 +148,12 @@ func (t *ImmutableTree) Has(key []byte) (bool, error) {
 }
 
 // Hash returns the root hash.
-func (t *ImmutableTree) Hash() ([]byte, error) {
+func (t *ImmutableTree) Hash() []byte {
 	hash, _, err := t.root.hashWithCount()
-	return hash, err
+	if err != nil {
+		panic(err)
+	}
+	return hash
 }
 
 // Export returns an iterator that exports tree nodes as ExportNodes. These nodes can be
