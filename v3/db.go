@@ -212,3 +212,23 @@ func (d *Database) Commit() error {
 func (d *Database) NewBatch() corestore.Batch {
 	return d.db.NewBatch()
 }
+
+// ListVersions returns all available versions
+func (d *Database) ListVersions() ([]int64, error) {
+	itr, err := d.MetadataIterator()
+	if err != nil {
+		return nil, err
+	}
+	defer itr.Close()
+	
+	versions := make([]int64, 0)
+	for ; itr.Valid(); itr.Next() {
+		// Extract version from key
+		if len(itr.Key()) == 9 && itr.Key()[0] == metadataPrefix {
+			v := int64(binary.BigEndian.Uint64(itr.Key()[1:]))
+			versions = append(versions, v)
+		}
+	}
+	
+	return versions, nil
+}

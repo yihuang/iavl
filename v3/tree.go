@@ -516,3 +516,32 @@ func (t *ImmutableTree) Hash() []byte {
 	}
 	return t.root.computeHash()
 }
+
+// clone creates a deep copy of the mutable tree
+func (t *MutableTree) clone() *MutableTree {
+	newTree := &MutableTree{
+		db:        t.db,
+		logger:    t.logger,
+		root:      nil,
+		version:   t.version,
+		size:      t.size,
+		height:    t.height,
+		nodeCache: make(map[string]*Node, len(t.nodeCache)),
+		updates:   make(map[string]*Node, len(t.updates)),
+	}
+	
+	// Copy root
+	if t.root != nil {
+		newTree.root = t.root.clone()
+	}
+	
+	// Copy caches
+	for k, v := range t.nodeCache {
+		newTree.nodeCache[k] = v
+	}
+	for k, v := range t.updates {
+		newTree.updates[k] = v
+	}
+	
+	return newTree
+}
