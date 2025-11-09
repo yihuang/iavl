@@ -472,20 +472,6 @@ func (t *MutableTree) saveNodes(node *Node) error {
 	return nil
 }
 
-func getHeight(node *Node) int8 {
-	if node == nil {
-		return -1
-	}
-	return node.subtreeHeight
-}
-
-func getSize(node *Node) int64 {
-	if node == nil {
-		return 0
-	}
-	return node.size
-}
-
 // ImmutableTree represents an immutable snapshot
 type ImmutableTree struct {
 	root    *Node

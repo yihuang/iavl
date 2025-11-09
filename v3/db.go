@@ -232,3 +232,50 @@ func (d *Database) ListVersions() ([]int64, error) {
 	
 	return versions, nil
 }
+
+// DiskLayer represents the persistent path-based storage
+type DiskLayer struct {
+	db     *Database
+	logger Logger
+}
+
+// NewDiskLayer creates a new disk layer
+func NewDiskLayer(db corestore.KVStoreWithBatch, logger Logger) *DiskLayer {
+	return &DiskLayer{
+		db:     NewDatabase(db, logger),
+		logger: logger,
+	}
+}
+
+// Get retrieves a value from the disk layer
+func (d *DiskLayer) Get(key []byte) ([]byte, error) {
+	return d.db.LoadLatestState(key)
+}
+
+// ApplyChanges applies a changeset to the disk layer
+func (d *DiskLayer) ApplyChanges(changes []*KVPair) error {
+	for _, kv := range changes {
+		if kv.Value == nil {
+			// Deletion
+			if err := d.db.DeleteLatestState(kv.Key); err != nil {
+				return err
+			}
+		} else {
+			// Insert/Update
+			if err := d.db.SaveLatestState(kv.Key, kv.Value); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// ListVersions lists all versions in the disk layer
+func (d *DiskLayer) ListVersions() ([]int64, error) {
+	return d.db.ListVersions()
+}
+
+// GetVersionMetadata retrieves metadata for a specific version
+func (d *DiskLayer) GetVersionMetadata(version int64) (*VersionMetadata, error) {
+	return d.db.LoadVersionMetadata(version)
+}

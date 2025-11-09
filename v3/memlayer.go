@@ -1,28 +1,22 @@
 package iavl
 
 import (
+	"bytes"
 	"fmt"
 	"sync"
 	"time"
-
-	corestore "cosmossdk.io/core/store"
 )
 
-// MemLayer represents an immutable in-memory tree layer
+// MemLayer represents an immutable in-memory tree layer with structural sharing
 type MemLayer struct {
 	id        int64
-	tree      *MutableTree
+	root      *Node // Immutable root node
+	version   int64 // Version this layer represents
 	parent    *MemLayer
 	createdAt time.Time
 	
-	// Layer-specific state
-	layerMap map[string]*KVPair // Keypath -> KVPair for this layer
-}
-
-// KVPair represents a key-value pair with metadata
-type KVPair struct {
-	Key   []byte
-	Value []byte
+	// Tracks explicit deletions in this layer
+	deletions map[string]bool // Key -> deleted flag
 }
 
 // MemLayerManager manages multiple mem layers and handles compaction
@@ -48,71 +42,73 @@ func NewMemLayerManager(diskLayer *DiskLayer, maxLayers int) *MemLayerManager {
 	}
 }
 
-// Get retrieves a value from the layer stack
+// Get retrieves a value from the layer stack using O(log n) search
 func (m *MemLayerManager) Get(key []byte) ([]byte, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-
+	
 	// Search from latest to oldest layer
 	for i := len(m.layers) - 1; i >= 0; i-- {
 		layer := m.layers[i]
-		value, exists := layer.layerMap[string(key)]
-		if exists {
-			// If exists in this layer
-			if value.Value != nil {
-				return value.Value, nil
-			}
-			// Value is nil, which means it's deleted in this layer
-			// Return nil immediately
+		
+		// Check if explicitly deleted in this layer
+		if layer.deletions[string(key)] {
 			return nil, nil
 		}
-		// Key doesn't exist in this layer, continue to parent
+		
+		// Try to get from this layer's tree
+		if value := layer.root.get(key); value != nil {
+			return value, nil
+		}
 	}
-
+	
 	// Not found in mem layers, query disk layer
 	return m.diskLayer.Get(key)
 }
 
-// Set creates a new layer with the given changeset
-func (m *MemLayerManager) Set(changeset []*KVPair) error {
+// Set creates a new layer with the given changeset using structural sharing
+func (m *MemLayerManager) Set(changes []*KVPair) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	
-	// Create new layer from the latest layer
+	// Start with latest layer or empty
 	var parent *MemLayer
 	if len(m.layers) > 0 {
 		parent = m.layers[len(m.layers)-1]
 	}
 	
-	layer := &MemLayer{
-		id:        m.nextID,
-		parent:    parent,
-		createdAt: time.Now(),
-		layerMap:  make(map[string]*KVPair),
-	}
-	
-	// Build layer map
-	for _, kv := range changeset {
-		keyStr := string(kv.Key)
-		if kv.Value == nil {
-			// Deletion - store with nil value to indicate deletion
-			layer.layerMap[keyStr] = &KVPair{
-				Key:   CloneBytes(kv.Key),
-				Value: nil, // nil value means deletion
-			}
-		} else {
-			// Insert/Update
-			layer.layerMap[keyStr] = &KVPair{
-				Key:   CloneBytes(kv.Key),
-				Value: CloneBytes(kv.Value),
+	// Create new layer with updated tree
+	var newRoot *Node
+	if parent != nil {
+		// Use copy-on-write to build from parent
+		newRoot = parent.root.update(changes).markImmutable()
+	} else {
+		// Build from scratch
+		for _, kv := range changes {
+			if kv.Value != nil {
+				newRoot = newRoot.insert(kv.Key, kv.Value).markImmutable()
 			}
 		}
 	}
 	
-	// Build the tree for this layer
-	layer.tree = m.buildLayerTree(layer)
+	// Track deletions
+	deletions := make(map[string]bool)
+	for _, kv := range changes {
+		if kv.Value == nil {
+			deletions[string(kv.Key)] = true
+		}
+	}
 	
-	m.layers = append(m.layers, layer)
+	newLayer := &MemLayer{
+		id:        m.nextID,
+		version:   m.nextID,
+		root:      newRoot,
+		parent:    parent,
+		createdAt: time.Now(),
+		deletions: deletions,
+	}
+	
+	m.layers = append(m.layers, newLayer)
 	m.nextID++
 	
 	// Check if compaction is needed
@@ -129,93 +125,51 @@ func (m *MemLayerManager) compact() error {
 		return nil
 	}
 	
-	// Collect all changes from all layers
-	allChanges := make(map[string]*KVPair)
+	// Get the latest layer's tree state
+	latestLayer := m.layers[len(m.layers)-1]
 	
-	for _, layer := range m.layers {
-		for key, kv := range layer.layerMap {
-			allChanges[key] = kv
-		}
-	}
+	// Collect all changes from all layers (newest wins)
+	changes := latestLayer.ExportChanges()
 	
-	// Convert to KVPair slice
-	changes := make([]*KVPair, 0, len(allChanges))
-	for _, kv := range allChanges {
-		changes = append(changes, kv)
-	}
-	
-	// Apply changes to disk layer
+	// Apply to disk layer
 	if err := m.diskLayer.ApplyChanges(changes); err != nil {
 		return err
 	}
 	
 	// Keep only the latest layer after compaction
 	// This allows querying recent history
-	latestLayer := m.layers[len(m.layers)-1]
-	// Create a new layer that references the disk layer
-	newLayer := &MemLayer{
-		id:        m.nextID,
-		parent:    nil, // Points to disk layer
-		createdAt: time.Now(),
-		layerMap:  latestLayer.layerMap, // Keep recent changes
-	}
-	
-	m.layers = []*MemLayer{newLayer}
-	m.nextID++
+	m.layers = []*MemLayer{latestLayer}
 	
 	return nil
 }
 
-// buildLayerTree builds a tree from a layer and its parent
-func (m *MemLayerManager) buildLayerTree(layer *MemLayer) *MutableTree {
-	// Create a new mutable tree
-	tree := &MutableTree{
-		db:        m.diskLayer.db,
-		logger:    m.diskLayer.logger,
-		root:      nil,
-		version:   0, // Mem layer version
-		size:      0,
-		height:    0,
-		nodeCache: make(map[string]*Node),
-		updates:   make(map[string]*Node),
-	}
-
-	// Start with parent's tree if exists
-	if layer.parent != nil && layer.parent.tree != nil {
-		tree.root = layer.parent.tree.root.clone()
-		tree.size = layer.parent.tree.size
-		tree.height = layer.parent.tree.height
-	}
-
-	// Apply this layer's changes
-	for _, kv := range layer.layerMap {
-		if kv.Value == nil {
-			// Deletion
-			tree.Remove(kv.Key)
-		} else {
-			// Insert/Update
-			tree.Set(kv.Key, kv.Value)
-		}
-	}
-
-	return tree
-}
-
 // GetVersion returns a snapshot of the tree at a specific layer version
-func (m *MemLayerManager) GetVersion(version int64) (*MutableTree, error) {
+func (m *MemLayerManager) GetVersion(version int64) (*ImmutableTree, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	
 	// Find the layer
 	for _, layer := range m.layers {
-		if layer.id == version {
-			// Return a copy of the layer's tree
-			tree := layer.tree.clone()
-			return tree, nil
+		if layer.version == version {
+			// Return immutable tree
+			return &ImmutableTree{
+				root:    layer.root,
+				version: layer.version,
+				size:    layer.root.size,
+				height:  layer.root.subtreeHeight,
+			}, nil
 		}
 	}
 	
-	return nil, fmt.Errorf("version %d not found in mem layers", version)
+	return nil, fmt.Errorf("version %d not found", version)
+}
+
+// Iterator creates an iterator that can cross layers
+func (m *MemLayerManager) Iterator(start, end []byte) (*LayeredIterator, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	
+	return NewLayeredIterator(m.layers, m.diskLayer, start, end)
 }
 
 // LatestVersion returns the latest mem layer version
@@ -226,116 +180,316 @@ func (m *MemLayerManager) LatestVersion() int64 {
 	if len(m.layers) == 0 {
 		return 0
 	}
-	return m.layers[len(m.layers)-1].id
-}
-
-// ListVersions returns all available versions (mem + disk)
-func (m *MemLayerManager) ListVersions() ([]int64, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	
-	versions := make([]int64, 0)
-	
-	// Add mem layer versions
-	for _, layer := range m.layers {
-		versions = append(versions, layer.id)
-	}
-	
-	// Add disk layer versions
-	diskVersions, err := m.diskLayer.ListVersions()
-	if err != nil {
-		return nil, err
-	}
-	versions = append(versions, diskVersions...)
-	
-	return versions, nil
+	return m.layers[len(m.layers)-1].version
 }
 
 // Get retrieves a value from a specific mem layer
-func (l *MemLayer) Get(key []byte) ([]byte, error) {
-	keyStr := string(key)
-
-	// Check this layer first
-	if kv, exists := l.layerMap[keyStr]; exists {
-		return kv.Value, nil
+func (l *MemLayer) Get(key []byte) []byte {
+	if l.root == nil {
+		return nil
 	}
-
-	// Check parent layer
-	if l.parent != nil {
-		return l.parent.Get(key)
-	}
-
-	return nil, nil
+	return l.root.get(key)
 }
 
-// clone creates a deep copy of the layer
-func (l *MemLayer) clone() *MemLayer {
-	newLayer := &MemLayer{
-		id:        l.id,
-		parent:    l.parent,
-		createdAt: l.createdAt,
-		layerMap:  make(map[string]*KVPair),
+// ExportChanges exports all changes from this layer
+func (l *MemLayer) ExportChanges() []*KVPair {
+	if l.root == nil {
+		return nil
 	}
-	
-	// Copy layer map
-	for k, v := range l.layerMap {
-		newLayer.layerMap[k] = &KVPair{
-			Key:   CloneBytes(v.Key),
-			Value: CloneBytes(v.Value),
+
+	changes := make([]*KVPair, 0)
+
+	// Recursively traverse the tree and collect all key-value pairs
+	var traverse func(node *Node)
+	traverse = func(node *Node) {
+		if node == nil {
+			return
 		}
-	}
-	
-	// Copy tree
-	if l.tree != nil {
-		newLayer.tree = l.tree.clone()
-	}
-	
-	return newLayer
-}
 
-// DiskLayer represents the persistent path-based storage
-type DiskLayer struct {
-	db     *Database
-	logger Logger
-}
-
-// NewDiskLayer creates a new disk layer
-func NewDiskLayer(db corestore.KVStoreWithBatch, logger Logger) *DiskLayer {
-	return &DiskLayer{
-		db:     NewDatabase(db, logger),
-		logger: logger,
-	}
-}
-
-// Get retrieves a value from the disk layer
-func (d *DiskLayer) Get(key []byte) ([]byte, error) {
-	return d.db.LoadLatestState(key)
-}
-
-// ApplyChanges applies a changeset to the disk layer
-func (d *DiskLayer) ApplyChanges(changes []*KVPair) error {
-	for _, kv := range changes {
-		if kv.Value == nil {
-			// Deletion
-			if err := d.db.DeleteLatestState(kv.Key); err != nil {
-				return err
+		if node.isLeaf() {
+			// Check if this key was deleted in this layer
+			if !l.deletions[string(node.key)] {
+				changes = append(changes, &KVPair{
+					Key:   node.key,
+					Value: node.value,
+				})
 			}
 		} else {
-			// Insert/Update
-			if err := d.db.SaveLatestState(kv.Key, kv.Value); err != nil {
-				return err
-			}
+			// Traverse children
+			traverse(node.left)
+			traverse(node.right)
 		}
 	}
+
+	traverse(l.root)
+	return changes
+}
+
+// TreeIterator implements in-order traversal of a tree
+type TreeIterator struct {
+	start     []byte
+	end       []byte
+	stack     []*Node
+	current   *Node
+	err       error
+}
+
+// NewTreeIterator creates a new tree iterator starting from a root node
+func NewTreeIterator(root *Node, start, end []byte) *TreeIterator {
+	it := &TreeIterator{
+		start: start,
+		end:   end,
+		stack: make([]*Node, 0),
+	}
+
+	// Initialize stack with leftmost path
+	if root != nil {
+		it.pushLeft(root)
+		it.current = it.pop()
+		// Skip nodes not in range
+		for it.current != nil && !it.isInRange(it.current.key) {
+			if it.current.right != nil {
+				it.pushLeft(it.current.right)
+			}
+			it.current = it.pop()
+		}
+	}
+
+	return it
+}
+
+// pushLeft pushes all left children from node onto the stack
+func (it *TreeIterator) pushLeft(node *Node) {
+	for node != nil {
+		it.stack = append(it.stack, node)
+		node = node.left
+	}
+}
+
+// isInRange checks if a key is within the iterator's range
+func (it *TreeIterator) isInRange(key []byte) bool {
+	if it.start != nil && bytes.Compare(key, it.start) < 0 {
+		return false
+	}
+	if it.end != nil && bytes.Compare(key, it.end) >= 0 {
+		return false
+	}
+	return true
+}
+
+// pop pops the next node from the stack
+func (it *TreeIterator) pop() *Node {
+	if len(it.stack) == 0 {
+		return nil
+	}
+	node := it.stack[len(it.stack)-1]
+	it.stack = it.stack[:len(it.stack)-1]
+	return node
+}
+
+// Next moves to the next key in the tree
+func (it *TreeIterator) Next() {
+	if it.current == nil {
+		return
+	}
+
+	// Move to right subtree
+	if it.current.right != nil {
+		it.pushLeft(it.current.right)
+	}
+
+	// Get next node
+	it.current = it.pop()
+
+	// Skip nodes not in range
+	for it.current != nil && !it.isInRange(it.current.key) {
+		if it.current.right != nil {
+			it.pushLeft(it.current.right)
+		}
+		it.current = it.pop()
+	}
+}
+
+// Valid returns whether the iterator is valid
+func (it *TreeIterator) Valid() bool {
+	return it.err == nil && it.current != nil
+}
+
+// Key returns the current key
+func (it *TreeIterator) Key() []byte {
+	if !it.Valid() {
+		return nil
+	}
+	return it.current.key
+}
+
+// Value returns the current value
+func (it *TreeIterator) Value() []byte {
+	if !it.Valid() {
+		return nil
+	}
+	return it.current.value
+}
+
+// Error returns the last error
+func (it *TreeIterator) Error() error {
+	return it.err
+}
+
+// LayeredIterator iterates across multiple mem layers and disk layer
+type LayeredIterator struct {
+	layers    []*MemLayer
+	diskLayer *DiskLayer
+	start     []byte
+	end       []byte
+	current   *Node
+	err       error
+
+	// Internal state
+	treeIter   *TreeIterator
+	layerIdx   int
+	seenKeys   map[string]bool // Track keys we've already returned
+}
+
+// NewLayeredIterator creates a new layered iterator
+func NewLayeredIterator(layers []*MemLayer, diskLayer *DiskLayer, start, end []byte) (*LayeredIterator, error) {
+	if len(layers) == 0 {
+		return nil, fmt.Errorf("no layers available")
+	}
+
+	it := &LayeredIterator{
+		layers:    layers,
+		diskLayer: diskLayer,
+		start:     start,
+		end:       end,
+		layerIdx:  len(layers) - 1, // Start from latest layer
+		seenKeys:  make(map[string]bool),
+	}
+
+	// Initialize tree iterator for the latest layer
+	it.treeIter = NewTreeIterator(layers[it.layerIdx].root, start, end)
+
+	return it, nil
+}
+
+// Next moves to the next key across all layers
+func (it *LayeredIterator) Next() {
+	if it.err != nil {
+		return
+	}
+
+	// Find next valid key across layers
+	for {
+		if it.treeIter == nil || !it.treeIter.Valid() {
+			// Move to previous layer
+			it.layerIdx--
+			if it.layerIdx < 0 {
+				// All mem layers exhausted
+				it.treeIter = nil
+				it.current = nil
+				return
+			}
+			// Start iteration on this layer
+			it.treeIter = NewTreeIterator(it.layers[it.layerIdx].root, it.start, it.end)
+			continue
+		}
+
+		// Check if current key is valid (not deleted in a newer layer)
+		key := it.treeIter.Key()
+		keyStr := string(key)
+
+		// Skip internal nodes (separator keys) - only return leaf nodes
+		if it.treeIter.current != nil && !it.treeIter.current.isLeaf() {
+			it.treeIter.Next()
+			continue
+		}
+
+		// Check if this key was deleted in any newer layer
+		if it.isDeletedInNewerLayer(key) {
+			// Skip this key and continue
+			it.treeIter.Next()
+			continue
+		}
+
+		// Check if we've already seen this key (from a newer layer)
+		if it.seenKeys[keyStr] {
+			// Skip this key and continue
+			it.treeIter.Next()
+			continue
+		}
+
+		// Key is valid and new, return it
+		it.seenKeys[keyStr] = true
+		it.current = it.treeIter.current
+		it.treeIter.Next()
+
+		// After moving to next, check if we need to skip internal nodes
+		for it.treeIter.Valid() && it.treeIter.current != nil && !it.treeIter.current.isLeaf() {
+			it.treeIter.Next()
+		}
+
+		return
+	}
+}
+
+// isDeletedInNewerLayer checks if a key was deleted in any layer newer than current
+func (it *LayeredIterator) isDeletedInNewerLayer(key []byte) bool {
+	keyStr := string(key)
+
+	// Check all layers newer than current
+	for i := it.layerIdx + 1; i < len(it.layers); i++ {
+		if it.layers[i].deletions[keyStr] {
+			return true
+		}
+	}
+
+	return false
+}
+
+// Valid returns whether the iterator is valid
+func (it *LayeredIterator) Valid() bool {
+	if it.err != nil {
+		return false
+	}
+	if it.treeIter == nil {
+		return false
+	}
+	// Check if current key is valid
+	if !it.treeIter.Valid() {
+		return false
+	}
+
+	// Skip internal nodes (separator keys) - only return leaf nodes
+	if it.treeIter.current != nil && !it.treeIter.current.isLeaf() {
+		return false
+	}
+
+	key := it.treeIter.Key()
+	return !it.isDeletedInNewerLayer(key)
+}
+
+// Key returns the current key
+func (it *LayeredIterator) Key() []byte {
+	if it.treeIter == nil {
+		return nil
+	}
+	return it.treeIter.Key()
+}
+
+// Value returns the current value
+func (it *LayeredIterator) Value() []byte {
+	if it.treeIter == nil {
+		return nil
+	}
+	return it.treeIter.Value()
+}
+
+// Error returns the last error
+func (it *LayeredIterator) Error() error {
+	return it.err
+}
+
+// Close closes the iterator
+func (it *LayeredIterator) Close() error {
 	return nil
-}
-
-// ListVersions lists all versions in the disk layer
-func (d *DiskLayer) ListVersions() ([]int64, error) {
-	return d.db.ListVersions()
-}
-
-// GetVersionMetadata retrieves metadata for a specific version
-func (d *DiskLayer) GetVersionMetadata(version int64) (*VersionMetadata, error) {
-	return d.db.LoadVersionMetadata(version)
 }
