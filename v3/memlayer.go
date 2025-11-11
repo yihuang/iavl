@@ -12,11 +12,17 @@ type MemLayer struct {
 	id        int64
 	root      *Node // Immutable root node
 	version   int64 // Version this layer represents
-	parent    *MemLayer
+
+	// Reference to the baseline tree from DiskLayer
+	baseline *Node // The tree state from DiskLayer when this MemLayer was created
+
 	createdAt time.Time
-	
+
 	// Tracks explicit deletions in this layer
 	deletions map[string]bool // Key -> deleted flag
+
+	// Whether this layer has changes from baseline
+	hasChanges bool
 }
 
 // MemLayerManager manages multiple mem layers and handles compaction
@@ -66,31 +72,32 @@ func (m *MemLayerManager) Get(key []byte) ([]byte, error) {
 	return m.diskLayer.Get(key)
 }
 
-// Set creates a new layer with the given changeset using structural sharing
+// Set creates a new layer with the given changeset using DiskLayer as baseline
 func (m *MemLayerManager) Set(changes []*KVPair) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
-	// Start with latest layer or empty
-	var parent *MemLayer
-	if len(m.layers) > 0 {
-		parent = m.layers[len(m.layers)-1]
+
+	// Get current baseline from DiskLayer
+	baselineRoot, err := m.diskLayer.GetTreeRoot()
+	if err != nil {
+		return err
 	}
-	
+
 	// Create new layer with updated tree
+	// We use the disk layer's root as baseline, then apply changes
 	var newRoot *Node
-	if parent != nil {
-		// Use copy-on-write to build from parent
-		newRoot = parent.root.update(changes).markImmutable()
+	if baselineRoot != nil {
+		// Use copy-on-write: read from disk, apply changes
+		newRoot = m.updateFromDisk(baselineRoot, changes).markImmutable()
 	} else {
-		// Build from scratch
+		// Empty tree, build from changes
 		for _, kv := range changes {
 			if kv.Value != nil {
 				newRoot = newRoot.insert(kv.Key, kv.Value).markImmutable()
 			}
 		}
 	}
-	
+
 	// Track deletions
 	deletions := make(map[string]bool)
 	for _, kv := range changes {
@@ -98,25 +105,60 @@ func (m *MemLayerManager) Set(changes []*KVPair) error {
 			deletions[string(kv.Key)] = true
 		}
 	}
-	
+
 	newLayer := &MemLayer{
-		id:        m.nextID,
-		version:   m.nextID,
-		root:      newRoot,
-		parent:    parent,
-		createdAt: time.Now(),
-		deletions: deletions,
+		id:          m.nextID,
+		version:     m.nextID,
+		root:        newRoot,
+		baseline:    baselineRoot, // Reference to disk layer baseline
+		createdAt:   time.Now(),
+		deletions:   deletions,
+		hasChanges:  true,
 	}
-	
+
 	m.layers = append(m.layers, newLayer)
 	m.nextID++
-	
+
 	// Check if compaction is needed
 	if len(m.layers) > m.maxLayers {
 		return m.compact()
 	}
-	
+
 	return nil
+}
+
+// updateFromDisk updates nodes, reading from disk for shared subtrees
+func (m *MemLayerManager) updateFromDisk(root *Node, changes []*KVPair) *Node {
+	// Make a mutable copy to work with
+	node := root
+	if node.isImmutable {
+		node = node.clone()
+	}
+
+	// Check if this node is being updated
+	for _, kv := range changes {
+		if bytes.Equal(kv.Key, node.key) {
+			// This node is being updated
+			if kv.Value == nil {
+				// Deletion - merge children from disk
+				node.left = m.updateFromDisk(node.left, changes)
+				node.right = m.updateFromDisk(node.right, changes)
+			} else {
+				// Update value
+				node.value = kv.Value
+			}
+			node.updateMetrics()
+			return node.markImmutable()
+		}
+	}
+
+	// Check children recursively
+	node.left = m.updateFromDisk(node.left, changes)
+	node.right = m.updateFromDisk(node.right, changes)
+
+	// Update metrics
+	node.updateMetrics()
+	return node.markImmutable()
 }
 
 // compact merges all mem layers into the disk layer

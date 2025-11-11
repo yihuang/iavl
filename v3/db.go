@@ -279,3 +279,37 @@ func (d *DiskLayer) ListVersions() ([]int64, error) {
 func (d *DiskLayer) GetVersionMetadata(version int64) (*VersionMetadata, error) {
 	return d.db.LoadVersionMetadata(version)
 }
+
+// GetTreeRoot returns the root node of the tree from disk
+// For simplicity, we rebuild the tree from latest state
+func (d *DiskLayer) GetTreeRoot() (*Node, error) {
+	// Get all latest state entries
+	itr, err := d.db.LatestStateIterator()
+	if err != nil {
+		return nil, err
+	}
+	defer itr.Close()
+
+	// Build tree from all key-value pairs
+	var root *Node
+	for ; itr.Valid(); itr.Next() {
+		key := itr.Key()[1:] // Remove prefix
+		value := itr.Value()
+		root = root.insert(key, value)
+	}
+
+	return root, nil
+}
+
+// BuildNodeFromStorage builds a node from storage for a specific key
+func (d *DiskLayer) BuildNodeFromStorage(changes []*KVPair) *Node {
+	// For this implementation, we just build nodes from changes
+	// In a real implementation, this would read from disk
+	var root *Node
+	for _, kv := range changes {
+		if kv.Value != nil {
+			root = root.insert(kv.Key, kv.Value)
+		}
+	}
+	return root
+}

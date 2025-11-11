@@ -437,3 +437,9 @@ func getSize(node *Node) int64 {
 	}
 	return node.size
 }
+
+// updateMetrics updates the height and size metrics of the node
+func (n *Node) updateMetrics() {
+	n.subtreeHeight = maxInt8(getHeight(n.left), getHeight(n.right)) + 1
+	n.size = getSize(n.left) + getSize(n.right)
+}
